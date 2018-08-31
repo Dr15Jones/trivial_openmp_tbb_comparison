@@ -29,7 +29,17 @@ public:
   TaskBase() = default;
   virtual ~TaskBase() = default;
 
-  virtual void spawn() =0;
+  static void spawn(std::unique_ptr<TaskBase> iTask) {
+    iTask.release()->doSpawn();
+  }
+
+  //Takes ownership of iTask
+  static void spawn(TaskBase* iTask) {
+    iTask->doSpawn();
+  }
+
+private:
+  virtual void doSpawn() =0;
 
 };
 
@@ -38,14 +48,15 @@ class FunctorTask : public TaskBase {
 public:
   FunctorTask( F&& iF) : m_f(std::move(iF) ) {}
 
-  void spawn() {
+private:
+  void doSpawn() override {
 #pragma omp task untied default(shared)
     {
       m_f();
       delete this;
     }
   };
-private:
+
   F m_f;
 };
 
@@ -57,7 +68,7 @@ std::unique_ptr<TaskBase> make_functor_task(F&& iF) {
 class WaitingTaskHolder {
 public:
   WaitingTaskHolder(std::unique_ptr<TaskBase> iTask):
-    task_{iTask.release(), [](TaskBase* iT) { iT->spawn(); } } {}
+    task_{iTask.release(), [](TaskBase* iT) { TaskBase::spawn(iT); } } {}
 
   WaitingTaskHolder() = default;
   WaitingTaskHolder(WaitingTaskHolder const&) = default;
@@ -82,7 +93,7 @@ void spawn_task(F&& iF) {
 
 template< typename F>
 void spawn_task(F&& iF) {
-  make_functor_task(std::move(iF)).release()->spawn();
+  TaskBase::spawn( make_functor_task(std::move(iF)) );
 }
 
 
